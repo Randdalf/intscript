@@ -1,0 +1,14 @@
+input n;
+
+i = 0;
+a = 0;
+b = 1;
+
+while(i < n)
+{
+    output a;
+    t = a + b;
+    a = b;
+    b = t;
+    i += 1;
+}

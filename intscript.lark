@@ -1,0 +1,56 @@
+program: stmt*
+
+// Statements
+?stmt: block_stmt | atom_stmt
+block_stmt: "{" stmt* "}"
+?atom_stmt: identifier OP_ASSIGN expr ";" -> assign_stmt
+          | "input" identifier ";" -> input_stmt
+          | "output" identifier ";" -> output_stmt
+          | "if" "(" expr ")" stmt ["else" stmt] -> if_stmt
+          | "while" "(" expr ")" stmt -> while_stmt
+          | "continue" ";" -> continue_stmt
+          | "break" ";" -> break_stmt
+
+// Expressions
+?expr: or_expr
+?or_expr: and_expr
+        | or_expr OP_OR and_expr -> binary_expr
+?and_expr: eql_expr
+         | and_expr OP_AND eql_expr -> binary_expr
+?eql_expr: rel_expr
+         | eql_expr OP_EQL rel_expr -> binary_expr
+?rel_expr: add_expr
+         | rel_expr OP_REL add_expr -> binary_expr
+?add_expr: mul_expr
+         | add_expr OP_ADD mul_expr -> binary_expr
+?mul_expr: unary_expr
+         | mul_expr OP_MUL unary_expr -> binary_expr
+?unary_expr: primary_expr
+           | (OP_NOT | OP_ADD) unary_expr
+?primary_expr: "(" expr ")"
+             | literal
+             | identifier
+
+// Values
+literal: INT
+identifier: NAME
+
+// Operator terminals
+OP_OR: "or"
+OP_AND: "and"
+OP_NOT: "not"
+OP_REL: "<" | "<=" | ">" |">="
+OP_EQL: "==" | "!="
+OP_ADD: "+" | "-"
+OP_MUL: "*"
+OP_ASSIGN: "=" | "+=" | "-=" | "*="
+
+COMMENT: /#[^\n]*/
+
+%import common.FLOAT
+%import common.INT
+%import common.CNAME -> NAME
+%import common.WS
+
+%ignore WS
+%ignore COMMENT
