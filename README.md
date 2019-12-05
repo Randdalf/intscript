@@ -1,2 +1,5 @@
 # intscript
-a small compiler to intcode
+Install requirements using:
+```
+pip install -r requirements.txt
+```
