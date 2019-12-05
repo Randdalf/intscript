@@ -6,9 +6,9 @@ b = 1;
 
 while(i < n)
 {
-    output a;
     t = a + b;
     a = b;
     b = t;
     i += 1;
+    output a;
 }

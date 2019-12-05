@@ -3,6 +3,7 @@
 """a tiny language that compiles to intcode"""
 
 from argparse import ArgumentParser
+from itertools import chain
 from lark import Lark, Transformer, v_args
 from pathlib import Path
 import sys
@@ -232,7 +233,7 @@ class IRInputAssignment(IRInstruction):
 
 
 class IROutput(IRInstruction):
-    _id = 'ouptput'
+    _id = 'output'
     _rhs = ['src']
 
     def __str__(slf):
@@ -461,6 +462,132 @@ class IRGenerator(ASTVisitor):
         return IRLiteral(node.value)
 
 
+class OPCODE:
+    ADD = 1
+    MULTIPLY = 2
+    INPUT = 3
+    OUTPUT = 4
+    JUMP_IF_TRUE = 5
+    JUMP_IF_FALSE = 6
+    LESS_THAN = 7
+    EQUALS = 8
+    STOP = 99
+
+
+class IntcodeGenerator:
+    def generate(slf, ir):
+        slf.memory = []
+        slf.labels = {}
+        slf.SCRATCH0 = IRVariable('__scratch0__')
+        slf.SCRATCH1 = IRVariable('__scratch1__')
+
+        # Process each instruction.
+        for instr in ir:
+            visit = f'visit_{instr._id}'
+            assert hasattr(slf, visit)
+            getattr(slf, visit)(*chain(instr.lhs, instr.rhs))
+
+        # Insert a stop instruction at the end of the program.
+        slf.memory.extend([OPCODE.STOP])
+
+        # For each unique name, generate a storage position.
+        offset = len(slf.memory)
+        storage = {}
+        for cell in slf.memory:
+            if isinstance(cell, IRVariable):
+                if cell.name not in storage:
+                    storage[cell.name] = offset + len(storage)
+
+        # Output an empty spot for each name.
+        for i in range(len(storage)):
+            slf.memory.append(0)
+
+        # Replace label and storage placeholders.
+        for i, cell in enumerate(slf.memory):
+            if isinstance(cell, IRVariable):
+                slf.memory[i] = storage[cell.name]
+            elif isinstance(cell, IRLabel):
+                slf.memory[i] = slf.labels[cell.rhs[0]]
+
+        return slf.memory
+
+    def is_immediate(slf, param):
+        return isinstance(param, IRLiteral) or isinstance(param, IRLabel)
+
+    def emit(slf, opcode, *params):
+        flags = ['1' if slf.is_immediate(p) else '0' for p in params]
+        head = ''.join(reversed(flags)) + f'{opcode:02d}'
+        slf.memory.append(int(head))
+        for param in params:
+            if isinstance(param, IRLiteral):
+                slf.memory.append(param.value)
+            else:
+                slf.memory.append(param)
+
+    def visit_label(slf, name):
+        slf.labels[name] = len(slf.memory)
+
+    def visit_input(slf, dest):
+        slf.emit(OPCODE.INPUT, dest)
+
+    def visit_output(slf, src):
+        slf.emit(OPCODE.OUTPUT, src)
+
+    def visit_copy(slf, result, right):
+        slf.visit_binary(result, IRLiteral(0), OP.ADD, right)
+
+    def visit_unary(slf, result, op, right):
+        if op == OP.NOT:
+            slf.visit_binary(result, IRLiteral(0), OP.EQ, right)
+        elif op == OP.SUB:
+            slf.visit_binary(result, IRLiteral(-1), OP.MUL, right)
+        elif op == OP.ADD:
+            slf.visit_copy(result, right)
+        else:
+            raise Exception(f"Unknown unary op '{op}'")
+
+    def visit_binary(slf, result, left, op, right):
+        if op == OP.OR:
+            slf.visit_binary(slf.SCRATCH0, left, OP.EQ, IRLiteral(0))
+            slf.visit_binary(slf.SCRATCH1, right, OP.EQ, IRLiteral(0))
+            slf.visit_binary(slf.SCRATCH0, slf.SCRATCH0, OP.ADD, slf.SCRATCH1)
+            slf.visit_binary(result, slf.SCRATCH0, OP.LT, IRLiteral(2))
+        elif op == OP.AND:
+            slf.visit_binary(slf.SCRATCH0, left, OP.EQ, IRLiteral(0))
+            slf.visit_binary(slf.SCRATCH1, right, OP.EQ, IRLiteral(0))
+            slf.visit_binary(slf.SCRATCH0, slf.SCRATCH0, OP.ADD, slf.SCRATCH1)
+            slf.visit_binary(result, slf.SCRATCH0, OP.EQ, IRLiteral(0))
+        elif op == OP.LT:
+            slf.emit(OPCODE.LESS_THAN, left, right, result)
+        elif op == OP.LE:
+            raise Exception('<= operand is not yet implemented')
+        elif op == OP.GT:
+            raise Exception('> operand is not yet implemented')
+        elif op == OP.GE:
+            slf.visit_binary(slf.SCRATCH0, left, OP.LT, right)
+            slf.visit_unary(result, OP.NOT, slf.SCRATCH0)
+        elif op == OP.EQ:
+            slf.emit(OPCODE.EQUALS, left, right, result)
+        elif op == OP.NE:
+            slf.emit(OPCODE.EQUALS, left, right, slf.SCRATCH0)
+            slf.visit_unary(result, OP.NOT, slf.SCRATCH0)
+        elif op == OP.ADD:
+            slf.emit(OPCODE.ADD, left, right, result)
+        elif op == OP.SUB:
+            slf.visit_unary(slf.SCRATCH0, OP.SUB, right)
+            slf.emit(OPCODE.ADD, left, slf.SCRATCH0, result)
+        elif op == OP.MUL:
+            slf.emit(OPCODE.MULTIPLY, left, right, result)
+        else:
+            raise Exception(f"Unknown binary op '{op}'")
+
+    def visit_goto(slf, label):
+        slf.emit(OPCODE.JUMP_IF_TRUE, IRLiteral(1), label)
+
+    def visit_goto_if_false(slf, cond, label):
+        slf.emit(OPCODE.JUMP_IF_FALSE, cond, label)
+
+
 def main(argv):
     arg_parser = ArgumentParser(description='intscript compiler')
     arg_parser.add_argument(
@@ -472,12 +599,7 @@ def main(argv):
     # Load grammar.
     grammar_path = Path(__file__).parent / 'intscript.lark'
     with open(grammar_path, mode='rt', encoding='UTF-8') as f:
-        parser = Lark(
-            f.read(),
-            start='program',
-            debug=True,
-            propagate_positions=True
-        )
+        parser = Lark(f.read(), start='program', propagate_positions=True)
 
     # Parse tree.
     with open(args.file, mode='rt', encoding='UTF-8') as f:
@@ -489,8 +611,11 @@ def main(argv):
     # Intermediate representation.
     ir = IRGenerator().visit(ast)
 
-    for instr in ir:
-        print(instr)
+    # Intcode.
+    intcode = IntcodeGenerator().generate(ir)
+
+    print(','.join(map(str, intcode)))
+
 
 if __name__ == "__main__":
     main(sys.argv[1:])
