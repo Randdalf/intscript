@@ -15,3 +15,31 @@ To run a program pass the intcode program followed by the inputs:
 ```
 python intcode.py samples/fibonacci.ic 10
 ```
+
+Basic syntax:
+```
+# Read an input into variable `n`
+input n;
+
+# Output the value of variable `n`
+output n;
+
+# Basic expressions
+a = 1;
+b = 2;
+c = a + b;
+
+# `if` statements
+if(6 < 7)
+{
+    output c:
+}
+
+# `while` loops
+i = 0;
+n = 10;
+while(i < n)
+{
+    i += 1;
+}
+```
