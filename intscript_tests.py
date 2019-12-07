@@ -13,7 +13,7 @@ def run(program, *inputs):
 
 
 def compile_and_run(file, *inputs):
-    return run(intscript(file), *inputs)
+    return run(intscript(file, *inputs), *inputs)
 
 
 class IntscriptTests(unittest.TestCase):
