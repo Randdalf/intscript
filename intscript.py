@@ -3,10 +3,13 @@
 """a tiny language that compiles to intcode"""
 
 from argparse import ArgumentParser
+from contextlib import contextmanager
 from itertools import chain
 from lark import Lark, Transformer, v_args
 from pathlib import Path
 import sys
+
+from intcode import OPCODE
 
 
 class OP:
@@ -33,6 +36,7 @@ assign_ops = {
     OP.ASSIGN_SUB: OP.SUB,
     OP.ASSIGN_MUL: OP.MUL
 }
+
 
 class ASTNode:
     _id = ''
@@ -452,7 +456,7 @@ class IRGenerator(ASTVisitor):
     def visit_unary_expr(slf, node):
         right = slf.visit(node.right)
         result = slf.temp()
-        slf.emit(IRUnaryExprAssignment(result, op, right))
+        slf.emit(IRUnaryExprAssignment(result, node.op.value, right))
         return result
 
     def visit_identifier(slf, node):
@@ -462,24 +466,12 @@ class IRGenerator(ASTVisitor):
         return IRLiteral(node.value)
 
 
-class OPCODE:
-    ADD = 1
-    MULTIPLY = 2
-    INPUT = 3
-    OUTPUT = 4
-    JUMP_IF_TRUE = 5
-    JUMP_IF_FALSE = 6
-    LESS_THAN = 7
-    EQUALS = 8
-    STOP = 99
-
-
 class IntcodeGenerator:
     def generate(slf, ir):
         slf.memory = []
         slf.labels = {}
-        slf.SCRATCH0 = IRVariable('__scratch0__')
-        slf.SCRATCH1 = IRVariable('__scratch1__')
+        slf.free_scratches = set()
+        slf.used_scratches = set()
 
         # Process each instruction.
         for instr in ir:
@@ -510,6 +502,20 @@ class IntcodeGenerator:
                 slf.memory[i] = slf.labels[cell.rhs[0]]
 
         return slf.memory
+
+    @contextmanager
+    def scratch(slf):
+        if len(slf.free_scratches) == 0:
+            n = len(slf.used_scratches)
+            slf.free_scratches.add(IRVariable(f'__scratch{n}__'))
+
+        scratch = slf.free_scratches.pop()
+        slf.used_scratches.add(scratch)
+
+        yield scratch
+
+        slf.used_scratches.remove(scratch)
+        slf.free_scratches.add(scratch)
 
     def is_immediate(slf, param):
         return isinstance(param, IRLiteral) or isinstance(param, IRLabel)
@@ -548,34 +554,45 @@ class IntcodeGenerator:
 
     def visit_binary(slf, result, left, op, right):
         if op == OP.OR:
-            slf.visit_binary(slf.SCRATCH0, left, OP.EQ, IRLiteral(0))
-            slf.visit_binary(slf.SCRATCH1, right, OP.EQ, IRLiteral(0))
-            slf.visit_binary(slf.SCRATCH0, slf.SCRATCH0, OP.ADD, slf.SCRATCH1)
-            slf.visit_binary(result, slf.SCRATCH0, OP.LT, IRLiteral(2))
+            with slf.scratch() as scratch0, slf.scratch() as scratch1:
+                slf.visit_binary(scratch0, left, OP.EQ, IRLiteral(0))
+                slf.visit_binary(scratch1, right, OP.EQ, IRLiteral(0))
+                slf.visit_binary(scratch0, scratch0, OP.ADD, scratch1)
+                slf.visit_binary(result, scratch0, OP.LT, IRLiteral(2))
         elif op == OP.AND:
-            slf.visit_binary(slf.SCRATCH0, left, OP.EQ, IRLiteral(0))
-            slf.visit_binary(slf.SCRATCH1, right, OP.EQ, IRLiteral(0))
-            slf.visit_binary(slf.SCRATCH0, slf.SCRATCH0, OP.ADD, slf.SCRATCH1)
-            slf.visit_binary(result, slf.SCRATCH0, OP.EQ, IRLiteral(0))
+            with slf.scratch() as scratch0, slf.scratch() as scratch1:
+                slf.visit_binary(scratch0, left, OP.EQ, IRLiteral(0))
+                slf.visit_binary(scratch1, right, OP.EQ, IRLiteral(0))
+                slf.visit_binary(scratch0, scratch0, OP.ADD, scratch1)
+                slf.visit_binary(result, scratch0, OP.EQ, IRLiteral(0))
         elif op == OP.LT:
             slf.emit(OPCODE.LESS_THAN, left, right, result)
         elif op == OP.LE:
-            raise Exception('<= operand is not yet implemented')
+            with slf.scratch() as scratch0, slf.scratch() as scratch1:
+                slf.visit_binary(scratch0, left, OP.LT, right)
+                slf.visit_binary(scratch1, left, OP.EQ, right)
+                slf.visit_binary(scratch0, scratch0, OP.ADD, scratch1)
+                slf.visit_binary(result, scratch0, OP.EQ, IRLiteral(1))
         elif op == OP.GT:
-            raise Exception('> operand is not yet implemented')
+            with slf.scratch() as scratch:
+                slf.visit_binary(scratch, left, OP.LE, right)
+                slf.visit_unary(result, OP.NOT, scratch)
         elif op == OP.GE:
-            slf.visit_binary(slf.SCRATCH0, left, OP.LT, right)
-            slf.visit_unary(result, OP.NOT, slf.SCRATCH0)
+            with slf.scratch() as scratch:
+                slf.visit_binary(scratch, left, OP.LT, right)
+                slf.visit_unary(result, OP.NOT, scratch)
         elif op == OP.EQ:
             slf.emit(OPCODE.EQUALS, left, right, result)
         elif op == OP.NE:
-            slf.emit(OPCODE.EQUALS, left, right, slf.SCRATCH0)
-            slf.visit_unary(result, OP.NOT, slf.SCRATCH0)
+            with slf.scratch() as scratch:
+                slf.emit(OPCODE.EQUALS, left, right, scratch)
+                slf.visit_unary(result, OP.NOT, scratch)
         elif op == OP.ADD:
             slf.emit(OPCODE.ADD, left, right, result)
         elif op == OP.SUB:
-            slf.visit_unary(slf.SCRATCH0, OP.SUB, right)
-            slf.emit(OPCODE.ADD, left, slf.SCRATCH0, result)
+            with slf.scratch() as scratch:
+                slf.visit_unary(scratch, OP.SUB, right)
+                slf.emit(OPCODE.ADD, left, scratch, result)
         elif op == OP.MUL:
             slf.emit(OPCODE.MULTIPLY, left, right, result)
         else:
@@ -588,21 +605,14 @@ class IntcodeGenerator:
         slf.emit(OPCODE.JUMP_IF_FALSE, cond, label)
 
 
-def main(argv):
-    arg_parser = ArgumentParser(description='intscript compiler')
-    arg_parser.add_argument(
-        'file',
-        help='intscript file'
-    )
-    args = arg_parser.parse_args(argv)
-
+def intscript(file):
     # Load grammar.
     grammar_path = Path(__file__).parent / 'intscript.lark'
     with open(grammar_path, mode='rt', encoding='UTF-8') as f:
         parser = Lark(f.read(), start='program', propagate_positions=True)
 
     # Parse tree.
-    with open(args.file, mode='rt', encoding='UTF-8') as f:
+    with open(file, mode='rt', encoding='UTF-8') as f:
         parse_tree = parser.parse(f.read())
 
     # Abstract syntax tree.
@@ -612,8 +622,17 @@ def main(argv):
     ir = IRGenerator().visit(ast)
 
     # Intcode.
-    intcode = IntcodeGenerator().generate(ir)
+    return IntcodeGenerator().generate(ir)
 
+
+def main(argv):
+    arg_parser = ArgumentParser(description='intscript compiler')
+    arg_parser.add_argument(
+        'file',
+        help='intscript file'
+    )
+    args = arg_parser.parse_args(argv)
+    intcode = intscript(args.file)
     print(','.join(map(str, intcode)))
 
 

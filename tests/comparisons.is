@@ -1,0 +1,29 @@
+# Less-than
+output 1 < 2;
+output 2 < 2;
+output 3 < 2;
+
+# Less-than-or-equal
+output 1 <= 2;
+output 2 <= 2;
+output 3 <= 2;
+
+# Greater-than
+output 1 > 2;
+output 2 > 2;
+output 3 > 2;
+
+# Greater-than-or-equal
+output 1 >= 2;
+output 2 >= 2;
+output 3 >= 2;
+
+# Equal
+output 1 == 2;
+output 2 == 2;
+output 3 == 2;
+
+# Not-equal
+output 1 != 2;
+output 2 != 2;
+output 3 != 2;

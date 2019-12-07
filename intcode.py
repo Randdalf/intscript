@@ -140,5 +140,6 @@ def main(argv):
         cpu = intcode(program, *[int(i) for i in args.inputs])
         print(cpu.outputs)
 
+
 if __name__ == "__main__":
     main(sys.argv[1:])

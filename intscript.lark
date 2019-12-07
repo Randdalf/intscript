@@ -5,7 +5,7 @@ program: stmt*
 block_stmt: "{" stmt* "}"
 ?atom_stmt: identifier OP_ASSIGN expr ";" -> assign_stmt
           | "input" identifier ";" -> input_stmt
-          | "output" identifier ";" -> output_stmt
+          | "output" expr ";" -> output_stmt
           | "if" "(" expr ")" stmt ["else" stmt] -> if_stmt
           | "while" "(" expr ")" stmt -> while_stmt
           | "continue" ";" -> continue_stmt
@@ -39,7 +39,7 @@ identifier: NAME
 OP_OR: "or"
 OP_AND: "and"
 OP_NOT: "not"
-OP_REL: "<" | "<=" | ">" |">="
+OP_REL: "<=" | ">=" | "<" | ">"
 OP_EQL: "==" | "!="
 OP_ADD: "+" | "-"
 OP_MUL: "*"
