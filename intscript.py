@@ -467,7 +467,10 @@ class IRGenerator(ASTVisitor):
             slf.emit(IRBinaryExprAssignment(target, target, op, expr))
 
     def visit_input_stmt(slf, node):
-        dest = slf.find_or_create_variable(node.dest.value)
+        if isinstance(node.dest, ASTIdentifer):
+            dest = slf.find_or_create_variable(node.dest.value)
+        else:
+            dest = slf.visit(node.dest)
         slf.emit(IRInputAssignment(dest))
 
     def visit_output_stmt(slf, node):
@@ -607,14 +610,11 @@ class IntcodeGenerator:
     def emit(slf, opcode, *params):
         # To handle indexing, we emit a prelude which modifies the instruction
         # with the address of the element we are reading or writing.
-        elements = [
-            (i, p) for i, p in enumerate(params) if isinstance(p, IRElement)
-        ]
-        n = len(elements)
-        base = len(slf.memory)
-        for i, element in elements:
-            addr = IRAddress(base + (4 * n) + i + 1)
-            slf.emit(OPCODE.ADD, element.addr, element.index, addr)
+        elements = [e for e in params if isinstance(e, IRElement)]
+        preludes = {}
+        for element in elements:
+            slf.emit(OPCODE.ADD, element.addr, element.index, IRAddress(0))
+            preludes[element] = len(slf.memory) - 1
 
         # Now emit the actual instruction.
         flags = ['1' if p.immediate else '0' for p in params]
@@ -624,6 +624,9 @@ class IntcodeGenerator:
             if isinstance(param, IRLiteral) or isinstance(param, IRAddress):
                 slf.memory.append(param.value)
             elif isinstance(param, IRElement):
+                # Write the address of this parameter into the prelude
+                # instruction which will modify it.
+                slf.memory[preludes[param]] = len(slf.memory)
                 slf.memory.append(0)
             else:
                 slf.memory.append(param)
