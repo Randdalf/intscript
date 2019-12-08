@@ -1,0 +1,221 @@
+# An intcode computer that can run on an intcode computer!
+
+# Read the program into memory. The computer has 1k of memory.
+array memory[1024];
+input n;
+i = 0;
+while(i < n)
+{
+    input memory[i];
+    i += 1;
+}
+
+# Run the computer.
+pc = 0;
+while(memory[pc] != 99)
+{
+    opcode = memory[pc];
+    pc += 1;
+
+    # Instead of implementing a modulo operator to extract the opcode and the
+    # various parameter modes, we implement each possibility separately.
+
+    # ADD
+    if(opcode == 1)
+    {
+        memory[memory[pc+2]] = memory[memory[pc]] + memory[memory[pc+1]];
+        pc += 3;
+    }
+    else if(opcode == 101)
+    {
+        memory[memory[pc+2]] = memory[pc] + memory[memory[pc+1]];
+        pc += 3;
+    }
+    else if(opcode == 1001)
+    {
+        memory[memory[pc+2]] = memory[memory[pc]] + memory[pc+1];
+        pc += 3;
+    }
+    else if(opcode == 1101)
+    {
+        memory[memory[pc+2]] = memory[pc] + memory[pc+1];
+        pc += 3;
+    }
+
+    # MULTIPLY
+    else if(opcode == 2)
+    {
+        memory[memory[pc+2]] = memory[memory[pc]] * memory[memory[pc+1]];
+        pc += 3;
+    }
+    else if(opcode == 102)
+    {
+        memory[memory[pc+2]] = memory[pc] * memory[memory[pc+1]];
+        pc += 3;
+    }
+    else if(opcode == 1002)
+    {
+        memory[memory[pc+2]] = memory[memory[pc]] * memory[pc+1];
+        pc += 3;
+    }
+    else if(opcode == 1102)
+    {
+        memory[memory[pc+2]] = memory[pc] * memory[pc+1];
+        pc += 3;
+    }
+
+    # INPUT
+    else if(opcode == 3)
+    {
+        input memory[memory[pc]];
+        pc += 1;
+    }
+
+    # OUTPUT
+    else if(opcode == 4)
+    {
+        output memory[memory[pc]];
+        pc += 1;
+    }
+    else if(opcode == 104)
+    {
+        output memory[pc];
+        pc += 1;
+    }
+
+    # JUMP_IF_TRUE
+    else if(opcode == 5)
+    {
+        if(memory[memory[pc]] != 0)
+        {
+            pc = memory[memory[pc+1]];
+        }
+        else
+        {
+            pc += 2;
+        }
+    }
+    else if(opcode == 105)
+    {
+        if(memory[pc] != 0)
+        {
+            pc = memory[memory[pc+1]];
+        }
+        else
+        {
+            pc += 2;
+        }
+    }
+    else if(opcode == 1005)
+    {
+        if(memory[memory[pc]] != 0)
+        {
+            pc = memory[pc+1];
+        }
+        else
+        {
+            pc += 2;
+        }
+    }
+    else if(opcode == 1105)
+    {
+        if(memory[pc] != 0)
+        {
+            pc = memory[pc+1];
+        }
+        else
+        {
+            pc += 2;
+        }
+    }
+
+    # JUMP_IF_FALSE
+    else if(opcode == 6)
+    {
+        if(memory[memory[pc]] == 0)
+        {
+            pc = memory[memory[pc+1]];
+        }
+        else
+        {
+            pc += 2;
+        }
+    }
+    else if(opcode == 106)
+    {
+        if(memory[pc] == 0)
+        {
+            pc = memory[memory[pc+1]];
+        }
+        else
+        {
+            pc += 2;
+        }
+    }
+    else if(opcode == 1006)
+    {
+        if(memory[memory[pc]] == 0)
+        {
+            pc = memory[pc+1];
+        }
+        else
+        {
+            pc += 2;
+        }
+    }
+    else if(opcode == 1106)
+    {
+        if(memory[pc] == 0)
+        {
+            pc = memory[pc+1];
+        }
+        else
+        {
+            pc += 2;
+        }
+    }
+
+    # LESS_THAN
+    else if(opcode == 7)
+    {
+        memory[memory[pc+2]] = memory[memory[pc]] < memory[memory[pc+1]];
+        pc += 3;
+    }
+    else if(opcode == 107)
+    {
+        memory[memory[pc+2]] = memory[pc] < memory[memory[pc+1]];
+        pc += 3;
+    }
+    else if(opcode == 1007)
+    {
+        memory[memory[pc+2]] = memory[memory[pc]] < memory[pc+1];
+        pc += 3;
+    }
+    else if(opcode == 1107)
+    {
+        memory[memory[pc+2]] = memory[pc] < memory[pc+1];
+        pc += 3;
+    }
+
+    # EQUALS
+    else if(opcode == 8)
+    {
+        memory[memory[pc+2]] = memory[memory[pc]] == memory[memory[pc+1]];
+        pc += 3;
+    }
+    else if(opcode == 108)
+    {
+        memory[memory[pc+2]] = memory[pc] == memory[memory[pc+1]];
+        pc += 3;
+    }
+    else if(opcode == 1008)
+    {
+        memory[memory[pc+2]] = memory[memory[pc]] == memory[pc+1];
+        pc += 3;
+    }
+    else if(opcode == 1108)
+    {
+        memory[memory[pc+2]] = memory[pc] == memory[pc+1];
+        pc += 3;
+    }
+}

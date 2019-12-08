@@ -4,7 +4,7 @@ program: stmt*
 ?stmt: block_stmt | atom_stmt
 block_stmt: "{" stmt* "}"
 ?atom_stmt: expr OP_ASSIGN expr ";" -> assign_stmt
-          | "input" identifier ";" -> input_stmt
+          | "input" expr ";" -> input_stmt
           | "output" expr ";" -> output_stmt
           | "if" "(" expr ")" stmt ["else" stmt] -> if_stmt
           | "while" "(" expr ")" stmt -> while_stmt
