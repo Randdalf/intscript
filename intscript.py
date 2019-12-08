@@ -4,8 +4,8 @@
 
 from argparse import ArgumentParser
 from contextlib import contextmanager
-from itertools import chain
-from lark import Lark, Transformer, v_args
+from itertools import chain, repeat
+from lark import Lark, Token, Transformer, v_args
 from pathlib import Path
 import sys
 
@@ -98,6 +98,11 @@ class ASTBreakStatement(ASTNode):
     _id = 'break_stmt'
 
 
+class ASTArrayStatement(ASTNode):
+    _id = 'array_stmt'
+    _props = ['target', 'size']
+
+
 class ASTBinaryExpression(ASTNode):
     _id = 'binary_expr'
     _props = ['left', 'op', 'right']
@@ -106,6 +111,11 @@ class ASTBinaryExpression(ASTNode):
 class ASTUnaryExpression(ASTNode):
     _id = 'unary_expr'
     _props = ['op', 'right']
+
+
+class ASTSubscriptExpression(ASTNode):
+    _id = 'subscript_expr'
+    _props = ['addr', 'index']
 
 
 class ASTLiteral(ASTNode):
@@ -147,11 +157,17 @@ class ASTTransformer(Transformer):
     def break_stmt(slf):
         return ASTBreakStatement()
 
+    def array_stmt(slf, target, size):
+        return ASTArrayStatement(target=target, size=size)
+
     def binary_expr(slf, left, op, right):
         return ASTBinaryExpression(left=left, op=op, right=right)
 
     def unary_expr(slf, op, right):
         return ASTUnaryExpression(op=op, right=right)
+
+    def subscript_expr(slf, addr, index):
+        return ASTSubscriptExpression(addr=addr, index=index)
 
     def literal(slf, token):
         return ASTLiteral(value=int(token))
@@ -169,9 +185,10 @@ class ASTVisitor:
 
 
 class IRLiteral:
+    immediate = True
+
     def __init__(slf, value):
         slf.value = value
-        slf.type = type
 
     def __hash__(slf):
         return hash(('IRLiteral', slf.value))
@@ -186,7 +203,27 @@ class IRLiteral:
         return f'IRLiteral({slf.value})'
 
 
-class IRVariable:
+class IRAddress:
+    immediate = False
+
+    def __init__(slf, value):
+        slf.value = value
+
+    def __str__(slf):
+        return f'#{slf.value}'
+
+    def __repr__(slf):
+        return f'IRAddress({slf.value})'
+
+
+class IRStorage:
+    pass
+
+
+class IRVariable(IRStorage):
+    immediate = False
+    size = 1
+
     def __init__(slf, name):
         slf.name = name
 
@@ -201,6 +238,35 @@ class IRVariable:
 
     def __repr__(slf):
         return f'IRVariable({slf.name})'
+
+
+class IRArray(IRStorage):
+    immediate = True
+
+    def __init__(slf, size):
+        if size < 1:
+            raise Exception('Arrays must have at least one element!')
+        slf.size = size
+
+    def __str__(slf):
+        return f'array[{slf.size}]'
+
+    def __repr__(slf):
+        return f'IRArray({slf.size})'
+
+
+class IRElement:
+    immediate = False
+
+    def __init__(slf, addr, index):
+        slf.addr = addr
+        slf.index = index
+
+    def __str__(slf):
+        return f'{slf.addr}[{slf.index}]'
+
+    def __repr__(slf):
+        return f'IRElement({slf.addr}, {slf.index})'
 
 
 class IRInstruction:
@@ -221,6 +287,7 @@ class IRInstruction:
 
 
 class IRLabel(IRInstruction):
+    immediate = True
     _id = 'label'
     _rhs = ['name']
 
@@ -287,6 +354,15 @@ class IRGotoIfFalse(IRInstruction):
         return f'if(!{slf.rhs[0]}) goto {slf.rhs[1].rhs[0]}'
 
 
+class IRArrayAssignment(IRInstruction):
+    _id = 'array'
+    _lhs = ['result']
+    _rhs = ['array']
+
+    def __str__(slf):
+        return f'{slf.lhs[0]} = {slf.rhs[0]}'
+
+
 class IRScope:
     CONTINUE = 'continue'
     BREAK = 'break'
@@ -308,14 +384,14 @@ class IRScopeManager:
     def __exit__(slf, *args):
         slf.scopes.pop()
 
-    def map_variable(slf, name, variable):
+    def map_variable(slf, v):
         scope = slf.scopes[-1]
-        if name in scope.variables:
+        if v.name in scope.variables:
             raise Exception(
-                f"There is already a variable named '{name}' in the scope"
+                f"There is already a variable named '{v.name}' in the scope"
             )
         else:
-            scope.variables[name] = variable
+            scope.variables[v.name] = v
 
     def map_label(slf, name, label):
         slf.scopes[-1].labels[name] = label
@@ -372,11 +448,16 @@ class IRGenerator(ASTVisitor):
             return slf.scope.find_variable(name)
         except KeyError:
             variable = IRVariable(name)
-            slf.scope.map_variable(name, variable)
+            slf.scope.map_variable(variable)
             return variable
 
     def visit_assign_stmt(slf, node):
-        target = slf.find_or_create_variable(node.target.value)
+        # Assignments to a variable automatically instantiates that variable,
+        # if it doesn't already exist.
+        if isinstance(node.target, ASTIdentifer):
+            target = slf.find_or_create_variable(node.target.value)
+        else:
+            target = slf.visit(node.target)
         expr = slf.visit(node.expr)
 
         if node.op == OP.ASSIGN:
@@ -446,6 +527,11 @@ class IRGenerator(ASTVisitor):
             raise SyntaxError('Break statement outside loop')
         slf.emit(IRGoto(label))
 
+    def visit_array_stmt(slf, node):
+        target = slf.find_or_create_variable(node.target.value)
+        array = IRArray(node.size.value)
+        slf.emit(IRArrayAssignment(target, array))
+
     def visit_binary_expr(slf, node):
         left = slf.visit(node.left)
         right = slf.visit(node.right)
@@ -458,6 +544,11 @@ class IRGenerator(ASTVisitor):
         result = slf.temp()
         slf.emit(IRUnaryExprAssignment(result, node.op.value, right))
         return result
+
+    def visit_subscript_expr(slf, node):
+        addr = slf.visit(node.addr)
+        index = slf.visit(node.index)
+        return IRElement(addr, index)
 
     def visit_identifier(slf, node):
         return slf.scope.find_variable(node.value)
@@ -482,22 +573,18 @@ class IntcodeGenerator:
         # Insert a stop instruction at the end of the program.
         slf.memory.extend([OPCODE.STOP])
 
-        # For each unique name, generate a storage position.
+        # Allocate storage for variables and arrays.
         offset = len(slf.memory)
         storage = {}
-        for cell in slf.memory:
-            if isinstance(cell, IRVariable):
-                if cell.name not in storage:
-                    storage[cell.name] = offset + len(storage)
-
-        # Output an empty spot for each name.
-        for i in range(len(storage)):
-            slf.memory.append(0)
+        for v in slf.memory:
+            if isinstance(v, IRStorage) and v not in storage:
+                storage[v] = len(slf.memory)
+                slf.memory.extend(repeat(0, v.size))
 
         # Replace label and storage placeholders.
         for i, cell in enumerate(slf.memory):
-            if isinstance(cell, IRVariable):
-                slf.memory[i] = storage[cell.name]
+            if isinstance(cell, IRStorage):
+                slf.memory[i] = storage[cell]
             elif isinstance(cell, IRLabel):
                 slf.memory[i] = slf.labels[cell.rhs[0]]
 
@@ -517,16 +604,27 @@ class IntcodeGenerator:
         slf.used_scratches.remove(scratch)
         slf.free_scratches.add(scratch)
 
-    def is_immediate(slf, param):
-        return isinstance(param, IRLiteral) or isinstance(param, IRLabel)
-
     def emit(slf, opcode, *params):
-        flags = ['1' if slf.is_immediate(p) else '0' for p in params]
+        # To handle indexing, we emit a prelude which modifies the instruction
+        # with the address of the element we are reading or writing.
+        elements = [
+            (i, p) for i, p in enumerate(params) if isinstance(p, IRElement)
+        ]
+        n = len(elements)
+        base = len(slf.memory)
+        for i, element in elements:
+            addr = IRAddress(base + (4 * n) + i + 1)
+            slf.emit(OPCODE.ADD, element.addr, element.index, addr)
+
+        # Now emit the actual instruction.
+        flags = ['1' if p.immediate else '0' for p in params]
         head = ''.join(reversed(flags)) + f'{opcode:02d}'
         slf.memory.append(int(head))
         for param in params:
-            if isinstance(param, IRLiteral):
+            if isinstance(param, IRLiteral) or isinstance(param, IRAddress):
                 slf.memory.append(param.value)
+            elif isinstance(param, IRElement):
+                slf.memory.append(0)
             else:
                 slf.memory.append(param)
 
@@ -603,6 +701,9 @@ class IntcodeGenerator:
 
     def visit_goto_if_false(slf, cond, label):
         slf.emit(OPCODE.JUMP_IF_FALSE, cond, label)
+
+    def visit_array(slf, result, array):
+        slf.emit(OPCODE.ADD, IRLiteral(0), array, result)
 
 
 def intscript(file):

@@ -3,13 +3,14 @@ program: stmt*
 // Statements
 ?stmt: block_stmt | atom_stmt
 block_stmt: "{" stmt* "}"
-?atom_stmt: identifier OP_ASSIGN expr ";" -> assign_stmt
+?atom_stmt: expr OP_ASSIGN expr ";" -> assign_stmt
           | "input" identifier ";" -> input_stmt
           | "output" expr ";" -> output_stmt
           | "if" "(" expr ")" stmt ["else" stmt] -> if_stmt
           | "while" "(" expr ")" stmt -> while_stmt
           | "continue" ";" -> continue_stmt
           | "break" ";" -> break_stmt
+          | "array" identifier "[" literal "]" ";" -> array_stmt
 
 // Expressions
 ?expr: or_expr
@@ -25,8 +26,10 @@ block_stmt: "{" stmt* "}"
          | add_expr OP_ADD mul_expr -> binary_expr
 ?mul_expr: unary_expr
          | mul_expr OP_MUL unary_expr -> binary_expr
-?unary_expr: primary_expr
+?unary_expr: postfix_expr
            | (OP_NOT | OP_ADD) unary_expr
+?postfix_expr: primary_expr
+             | postfix_expr "[" expr "]" -> subscript_expr
 ?primary_expr: "(" expr ")"
              | literal
              | identifier
